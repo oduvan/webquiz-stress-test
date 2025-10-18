@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "webquiz-stress-test"
-version = "0.1.1"
+version = "0.1.2"
 description = "Performance testing tool for WebQuiz servers - simulate concurrent users taking quizzes"
 authors = ["Oleksandr Liabakh <oduvan@gmail.com>"]
 license = "MIT"
