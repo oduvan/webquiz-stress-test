@@ -45,9 +45,6 @@ env/
 *~
 .DS_Store
 
-# Poetry
-poetry.lock
-
 # Testing
 .pytest_cache/
 .coverage
