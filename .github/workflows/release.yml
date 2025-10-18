@@ -1,0 +1,274 @@
+name: Release and Deploy to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0, 0.2.0, or 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Validate version format
+      run: |
+        if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "❌ Invalid version format. Expected: X.Y.Z (e.g., 0.1.0)"
+          exit 1
+        fi
+        echo "✅ Version format is valid: ${{ github.event.inputs.version }}"
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: latest
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Configure git
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+    - name: Update version in pyproject.toml and __init__.py
+      run: |
+        poetry version ${{ github.event.inputs.version }}
+        sed -i 's/__version__ = "[^"]*"/__version__ = "${{ github.event.inputs.version }}"/' webquiz_stress_test/__init__.py
+
+    - name: Commit version change
+      run: |
+        git add pyproject.toml webquiz_stress_test/__init__.py
+        git commit -m "Bump version to ${{ github.event.inputs.version }}"
+
+    - name: Create and push tag
+      run: |
+        git tag "v${{ github.event.inputs.version }}"
+        git push origin "v${{ github.event.inputs.version }}"
+
+    - name: Push version commit
+      run: |
+        git push origin HEAD:${{ github.ref_name }}
+
+  build-binaries:
+    needs: update-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary_name: webquiz-stress-test-linux
+            artifact_name: webquiz-stress-test-linux
+          - os: macos-13
+            binary_name: webquiz-stress-test-macos-intel
+            artifact_name: webquiz-stress-test-macos-intel
+          - os: macos-14
+            binary_name: webquiz-stress-test-macos-apple-silicon
+            artifact_name: webquiz-stress-test-macos-apple-silicon
+          - os: windows-latest
+            binary_name: webquiz-stress-test-windows.exe
+            artifact_name: webquiz-stress-test-windows.exe
+
+    steps:
+    - name: Checkout code with updated version
+      uses: actions/checkout@v4
+      with:
+        ref: v${{ github.event.inputs.version }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Poetry
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install poetry
+
+    - name: Install dependencies
+      run: python -m poetry install --no-interaction
+
+    - name: Build binary
+      run: python -m poetry run build_binary
+
+    - name: Rename binary (Linux/macOS)
+      if: runner.os != 'Windows'
+      run: mv dist/webquiz-stress-test dist/${{ matrix.binary_name }}
+
+    - name: Rename binary (Windows)
+      if: runner.os == 'Windows'
+      run: move dist\webquiz-stress-test.exe dist\${{ matrix.binary_name }}
+
+    - name: Create zip archive (Linux/macOS)
+      if: runner.os != 'Windows'
+      run: |
+        cd dist
+        zip ${{ matrix.binary_name }}.zip ${{ matrix.binary_name }}
+
+    - name: Create zip archive (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cd dist
+        Compress-Archive -Path ${{ matrix.binary_name }} -DestinationPath ${{ matrix.binary_name }}.zip
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: dist/${{ matrix.binary_name }}.zip
+        retention-days: 1
+
+  release:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code with updated version
+      uses: actions/checkout@v4
+      with:
+        ref: v${{ github.event.inputs.version }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: latest
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Install dependencies
+      run: poetry install --no-interaction
+
+    - name: Build package
+      run: poetry build
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
+        packages-dir: dist/
+
+    - name: Download binary artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: binaries/
+
+    - name: List downloaded binaries
+      run: |
+        echo "📦 Downloaded binaries:"
+        ls -lah binaries/
+        find binaries/ -type f
+
+    - name: Create GitHub Release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Create release notes
+        cat > release_notes.md << 'EOF'
+        🚀 **WebQuiz Stress Test v${{ github.event.inputs.version }}**
+
+        Performance testing tool for WebQuiz servers - simulate concurrent users taking quizzes.
+
+        ### 📦 Python Package
+        - Python wheel package (`webquiz-stress-test-${{ github.event.inputs.version }}-py3-none-any.whl`)
+        - Source distribution (`webquiz-stress-test-${{ github.event.inputs.version }}.tar.gz`)
+
+        ### 🖥️ Pre-built Binaries (Zipped)
+        - **Linux**: `webquiz-stress-test-linux.zip` (x86_64, no Python required)
+        - **macOS Intel**: `webquiz-stress-test-macos-intel.zip` (x86_64, no Python required)
+        - **macOS Apple Silicon**: `webquiz-stress-test-macos-apple-silicon.zip` (ARM64/M1/M2/M3, no Python required)
+        - **Windows**: `webquiz-stress-test-windows.exe.zip` (x86_64, no Python required)
+
+        ## Installation
+
+        ### Option 1: Install from PyPI (Recommended)
+        ```bash
+        pip install webquiz-stress-test==${{ github.event.inputs.version }}
+        webquiz-stress-test --help
+        ```
+
+        ### Option 2: Pre-built Binary
+        Download the zipped binary for your platform from the assets below:
+
+        **Linux:**
+        ```bash
+        wget https://github.com/oduvan/webquiz-stress-test/releases/download/v${{ github.event.inputs.version }}/webquiz-stress-test-linux.zip
+        unzip webquiz-stress-test-linux.zip
+        chmod +x webquiz-stress-test-linux
+        ./webquiz-stress-test-linux --help
+        ```
+
+        **macOS Intel (x86_64):**
+        ```bash
+        wget https://github.com/oduvan/webquiz-stress-test/releases/download/v${{ github.event.inputs.version }}/webquiz-stress-test-macos-intel.zip
+        unzip webquiz-stress-test-macos-intel.zip
+        chmod +x webquiz-stress-test-macos-intel
+        ./webquiz-stress-test-macos-intel --help
+        ```
+
+        **macOS Apple Silicon (ARM64/M1/M2/M3):**
+        ```bash
+        wget https://github.com/oduvan/webquiz-stress-test/releases/download/v${{ github.event.inputs.version }}/webquiz-stress-test-macos-apple-silicon.zip
+        unzip webquiz-stress-test-macos-apple-silicon.zip
+        chmod +x webquiz-stress-test-macos-apple-silicon
+        ./webquiz-stress-test-macos-apple-silicon --help
+        ```
+
+        **Windows:**
+        ```powershell
+        # Download webquiz-stress-test-windows.exe.zip from assets, extract, then run:
+        webquiz-stress-test-windows.exe --help
+        ```
+
+        ## Quick Start
+
+        ```bash
+        # Test with 10 concurrent users (default)
+        webquiz-stress-test
+
+        # Heavy load test with 100 users
+        webquiz-stress-test -c 100
+
+        # Test custom server
+        webquiz-stress-test -u http://localhost:9000 -c 50
+        ```
+
+        ## What's Changed
+        See the [commit history](https://github.com/oduvan/webquiz-stress-test/commits/v${{ github.event.inputs.version }}) for detailed changes.
+
+        ---
+        *This release was automatically created by the release workflow.*
+        EOF
+
+        # Create release with built artifacts
+        gh release create "v${{ github.event.inputs.version }}" \
+          --title "Release v${{ github.event.inputs.version }}" \
+          --notes-file release_notes.md \
+          --target ${{ github.ref_name }} \
+          dist/* \
+          binaries/webquiz-stress-test-linux/webquiz-stress-test-linux.zip \
+          binaries/webquiz-stress-test-macos-intel/webquiz-stress-test-macos-intel.zip \
+          binaries/webquiz-stress-test-macos-apple-silicon/webquiz-stress-test-macos-apple-silicon.zip \
+          binaries/webquiz-stress-test-windows.exe/webquiz-stress-test-windows.exe.zip
