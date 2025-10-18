@@ -331,6 +331,8 @@ class StressClient:
             # Notify server that question started (for timing and live stats)
             await self.question_start(question_id)
 
+            await asyncio.sleep(1)
+
             # Submit answer
             await self.submit_answer(question_id)
 
