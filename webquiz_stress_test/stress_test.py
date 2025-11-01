@@ -161,7 +161,7 @@ class StressClient:
         try:
             # Create SSL context with certifi CA bundle for PyInstaller compatibility
             ssl_context = create_ssl_context()
-            connector = aiohttp.TCPConnector(ssl=ssl_context) if ssl_context else None
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
 
             async with aiohttp.ClientSession(connector=connector) as session:
                 self.session = session
@@ -441,7 +441,7 @@ class AutoApprover:
         self.running = True
         # Create SSL context with certifi CA bundle for PyInstaller compatibility
         ssl_context = create_ssl_context()
-        connector = aiohttp.TCPConnector(ssl=ssl_context) if ssl_context else None
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
 
         async with aiohttp.ClientSession(connector=connector) as session:
             while self.running:
