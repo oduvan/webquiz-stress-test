@@ -19,6 +19,16 @@ def main():
         print("PyInstaller is not installed or not in PATH. Install it with: poetry install")
         sys.exit(1)
 
+    # Get certifi certificate bundle path
+    try:
+        import certifi
+
+        certifi_path = certifi.where()
+        print(f"[INFO] Including certifi CA bundle from: {certifi_path}")
+    except ImportError:
+        print("[WARNING] certifi not found - SSL verification may fail in binary")
+        certifi_path = None
+
     # PyInstaller command - use the binary entry point
     binary_entry = project_root / "webquiz_stress_test" / "binary_entry.py"
     cmd = [
@@ -28,6 +38,10 @@ def main():
         "webquiz-stress-test",
         "--hidden-import",
         "webquiz_stress_test.stress_test",
+        "--hidden-import",
+        "certifi",
+        "--collect-data",
+        "certifi",
         str(binary_entry),
     ]
 

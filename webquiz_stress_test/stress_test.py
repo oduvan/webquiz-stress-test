@@ -11,10 +11,34 @@ import aiohttp
 import time
 import random
 import sys
+import ssl
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import statistics
+
+try:
+    import certifi
+except ImportError:
+    certifi = None
+
+
+def create_ssl_context() -> Optional[ssl.SSLContext]:
+    """Create SSL context with proper CA bundle for PyInstaller compatibility.
+
+    When running as a PyInstaller binary, the system CA certificates may not be
+    accessible. This function creates an SSL context that uses certifi's CA bundle.
+    """
+    if not certifi:
+        # certifi not available, use default SSL context
+        return None
+
+    try:
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        return ssl_context
+    except Exception:
+        # Fall back to default if certifi fails
+        return None
 
 
 @dataclass
@@ -135,7 +159,11 @@ class StressClient:
     async def run(self):
         """Main client execution flow"""
         try:
-            async with aiohttp.ClientSession() as session:
+            # Create SSL context with certifi CA bundle for PyInstaller compatibility
+            ssl_context = create_ssl_context()
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+            async with aiohttp.ClientSession(connector=connector) as session:
                 self.session = session
 
                 # Step 1: Register
@@ -411,7 +439,11 @@ class AutoApprover:
     async def run(self):
         """Run approval loop"""
         self.running = True
-        async with aiohttp.ClientSession() as session:
+        # Create SSL context with certifi CA bundle for PyInstaller compatibility
+        ssl_context = create_ssl_context()
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+        async with aiohttp.ClientSession(connector=connector) as session:
             while self.running:
                 await asyncio.sleep(0.5)  # Check twice per second
                 # In a real implementation, we'd need WebSocket support
@@ -551,7 +583,8 @@ class StressTestCoordinator:
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
-        description="Stress test WebQuiz server with concurrent users", formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Stress test WebQuiz server with concurrent users",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(

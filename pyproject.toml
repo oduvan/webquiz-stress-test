@@ -29,6 +29,7 @@ packages = [{include = "webquiz_stress_test"}]
 [tool.poetry.dependencies]
 python = ">=3.9,<3.15"
 aiohttp = "^3.12.13"
+certifi = ">=2023.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pyinstaller = {version = "^6.15", python = ">=3.9,<3.15"}
