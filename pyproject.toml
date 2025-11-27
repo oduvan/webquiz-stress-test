@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "webquiz-stress-test"
-version = "0.1.1"
+version = "0.1.3"
 description = "Performance testing tool for WebQuiz servers - simulate concurrent users taking quizzes"
 authors = ["Oleksandr Liabakh <oduvan@gmail.com>"]
 license = "MIT"
@@ -30,6 +30,7 @@ packages = [{include = "webquiz_stress_test"}]
 python = ">=3.9,<3.15"
 aiohttp = "^3.12.13"
 beautifulsoup4 = "^4.12.0"
+certifi = ">=2023.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pyinstaller = {version = "^6.15", python = ">=3.9,<3.15"}
