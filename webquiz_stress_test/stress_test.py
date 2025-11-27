@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import statistics
+from bs4 import BeautifulSoup
 
 
 @dataclass
@@ -131,12 +132,95 @@ class StressClient:
         self.questions: List[Dict] = []
         self.total_questions: Optional[int] = None
         self.question_order: Optional[List[int]] = None  # Randomized question order from server
+        self.registration_fields: Optional[List[str]] = None  # Form field names from main page
+
+    async def fetch_main_page(self) -> Optional[str]:
+        """Fetch the main page HTML to understand the registration form"""
+        try:
+            # Add trailing slash if not present
+            url = self.base_url if self.base_url.endswith('/') else f"{self.base_url}/"
+            async with self.session.get(url) as resp:
+                if resp.status == 200:
+                    html = await resp.text()
+                    print(f"[Client {self.client_id}] Fetched main page")
+                    return html
+                else:
+                    print(f"[Client {self.client_id}] Failed to fetch main page: HTTP {resp.status}")
+                    return None
+        except Exception as e:
+            print(f"[Client {self.client_id}] Error fetching main page: {e}")
+            return None
+
+    def parse_registration_form(self, html: str) -> List[str]:
+        """Parse HTML to extract registration form field names"""
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            field_names = []
+
+            # Find the registration section
+            registration_section = soup.find("div", {"id": "registration"})
+            if not registration_section:
+                print(f"[Client {self.client_id}] No registration section found")
+                return field_names
+
+            # Find all input fields in registration section
+            for input_field in registration_section.find_all("input"):
+                # Skip non-text inputs
+                input_type = input_field.get("type", "text")
+                if input_type in ["submit", "button"]:
+                    continue
+
+                # Get field name from id or data-field-name
+                field_name = None
+                if input_field.get("id") == "username":
+                    field_name = "username"
+                elif input_field.has_attr("data-field-name"):
+                    field_name = input_field.get("data-field-name")
+
+                if field_name and field_name not in field_names:
+                    field_names.append(field_name)
+
+            print(f"[Client {self.client_id}] Found {len(field_names)} form fields: {field_names}")
+            return field_names
+
+        except Exception as e:
+            print(f"[Client {self.client_id}] Error parsing registration form: {e}")
+            return []
+
+    def generate_cyrillic_name(self) -> str:
+        """Generate a random Cyrillic name"""
+        surnames = ["Іваненко", "Петренко", "Коваленко", "Шевченко", "Бондаренко", "Ткаченко", "Мельник", "Савченко"]
+        first_names = ["Олександр", "Дмитро", "Андрій", "Сергій", "Микола", "Василь", "Іван", "Богдан"]
+
+        # Decide if we want surname or first name style
+        if random.random() < 0.5:
+            return random.choice(surnames)
+        else:
+            return random.choice(first_names)
+
+    def generate_registration_data(self) -> Dict[str, str]:
+        """Generate registration data based on discovered form fields"""
+        if not self.registration_fields:
+            # Fallback to just username if we couldn't parse the form
+            return {"username": f"Тестовий_{self.client_id}_{int(time.time())}"}
+
+        data = {}
+        for field_name in self.registration_fields:
+            # Generate random Cyrillic value for each field
+            data[field_name] = self.generate_cyrillic_name()
+
+        return data
 
     async def run(self):
         """Main client execution flow"""
         try:
             async with aiohttp.ClientSession() as session:
                 self.session = session
+
+                # Step 0: Fetch and parse the main page to understand registration form
+                html = await self.fetch_main_page()
+                if html:
+                    self.registration_fields = self.parse_registration_form(html)
 
                 # Step 1: Register
                 if not await self.register():
@@ -177,7 +261,9 @@ class StressClient:
         start_time = time.time()
         try:
             url = f"{self.base_url}/api/register"
-            async with self.session.post(url, json={"username": self.username}) as resp:
+            # Generate registration data based on discovered form fields
+            registration_data = self.generate_registration_data()
+            async with self.session.post(url, json=registration_data) as resp:
                 response_time = time.time() - start_time
 
                 if resp.status == 200:
@@ -191,7 +277,7 @@ class StressClient:
 
                     self.stats.register.add_success(response_time)
                     print(
-                        f"[Client {self.client_id}] Registered as {self.username} "
+                        f"[Client {self.client_id}] Registered with {registration_data} "
                         f"(user_id: {self.user_id}, requires_approval: {requires_approval})"
                     )
 
@@ -212,21 +298,21 @@ class StressClient:
             return False
 
     async def update_registration(self) -> bool:
-        """Update registration data (username) before approval"""
+        """Update registration data before approval"""
         start_time = time.time()
         try:
             url = f"{self.base_url}/api/update-registration"
-            # Update username with a modified version
-            new_username = f"{self.username}_updated"
-            payload = {"user_id": self.user_id, "username": new_username}
+            # Generate new registration data with different random values
+            new_registration_data = self.generate_registration_data()
+            # Add user_id to the payload
+            payload = {"user_id": self.user_id, **new_registration_data}
 
             async with self.session.put(url, json=payload) as resp:
                 response_time = time.time() - start_time
 
                 if resp.status == 200:
                     self.stats.update_registration.add_success(response_time)
-                    self.username = new_username
-                    print(f"[Client {self.client_id}] Updated registration to {new_username}")
+                    print(f"[Client {self.client_id}] Updated registration to {new_registration_data}")
                     return True
                 else:
                     error_text = await resp.text()
