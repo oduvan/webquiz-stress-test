@@ -211,15 +211,18 @@ class StressClient:
             print(f"[Client {self.client_id}] Error parsing registration form: {e}")
             return []
 
-    def generate_cyrillic_name(self) -> str:
-        """Generate a random Cyrillic name"""
+    def generate_cyrillic_name(self, field_index: int = 0) -> str:
+        """Generate a unique Cyrillic name with client ID to avoid collisions"""
         surnames = ["Іваненко", "Петренко", "Коваленко", "Шевченко", "Бондаренко", "Ткаченко", "Мельник", "Савченко"]
         first_names = ["Олександр", "Дмитро", "Андрій", "Сергій", "Микола", "Василь", "Іван", "Богдан"]
 
-        # Decide if we want surname or first name style
-        if random.random() < 0.5:
-            return random.choice(surnames)
+        # Use different name style based on field index for variety
+        if field_index == 0:
+            # First field: surname with client ID
+            base_name = random.choice(surnames)
+            return f"{base_name}_{self.client_id}"
         else:
+            # Other fields: just first name
             return random.choice(first_names)
 
     def generate_registration_data(self) -> Dict[str, str]:
@@ -229,9 +232,10 @@ class StressClient:
             return {"username": f"Тестовий_{self.client_id}_{int(time.time())}"}
 
         data = {}
-        for field_name in self.registration_fields:
+        for index, field_name in enumerate(self.registration_fields):
             # Generate random Cyrillic value for each field
-            data[field_name] = self.generate_cyrillic_name()
+            # First field gets unique surname with client ID, others get random first names
+            data[field_name] = self.generate_cyrillic_name(index)
 
         return data
 
